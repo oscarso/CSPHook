@@ -15,33 +15,55 @@ LOGGER::CLogger*	logger = NULL;
 HMODULE				g_hDll = 0;
 
 
-//typedef of CSP API function pointers
-typedef BOOL	(WINAPI *PFN_CRYPT_ACQUIRE_CONTEXT)(__out HCRYPTPROV*, __in LPCSTR, __in LPCSTR, __in DWORD, __in DWORD);
+//typedef and initialization of CSP API function pointers
+#ifdef UNICODE
+typedef BOOL	(WINAPI *PFN_CRYPT_ACQUIRE_CONTEXT)(_Out_ HCRYPTPROV*, _In_opt_	LPCWSTR, _In_opt_ LPCWSTR, _In_ DWORD, _In_ DWORD);
+PFN_CRYPT_ACQUIRE_CONTEXT	pOrigCryptAcquireContextW = NULL;
+#else
+typedef BOOL	(WINAPI *PFN_CRYPT_ACQUIRE_CONTEXT)(_Out_ HCRYPTPROV*, _In_opt_ LPCSTR, _In_opt_ LPCSTR, _In_ DWORD, _In_ DWORD);
+PFN_CRYPT_ACQUIRE_CONTEXT	pOrigCryptAcquireContextA = NULL;
+#endif
 
 
-//initialization of CSP API function pointers
-PFN_CRYPT_ACQUIRE_CONTEXT	pOrigCryptAcquireContext = NULL;
-
-
-//CardAcquireContext
+#ifdef UNICODE
+//CryptAcquireContextW
 BOOL WINAPI
-pHookCryptAcquireContext(
-	__out HCRYPTPROV*	phProv,
-	__in LPCSTR			pszContainer,
-	__in LPCSTR			pszProvider,
-	__in DWORD			dwProvType,
-	__in DWORD			dwFlags
+pHookCryptAcquireContextW(
+	_Out_		HCRYPTPROV*	phProv,
+	_In_opt_	LPCWSTR		szContainer,
+	_In_opt_	LPCWSTR		szProvider,
+	_In_		DWORD		dwProvType,
+	_In_		DWORD		dwFlags
 )
 {
 	if (logger) {
 		logger->TraceInfo("CryptAcquireContext");
-		logger->TraceInfo("IN pszContainer: %s", pszContainer);
-		logger->TraceInfo("IN pszProvider: %s", pszProvider);
 		logger->TraceInfo("IN dwProvType: 0x%x", dwProvType);
 		logger->TraceInfo("IN dwFlags: 0x%x", dwFlags);
 	}
-	return pOrigCryptAcquireContext(phProv, pszContainer, pszProvider, dwProvType, dwFlags);
+	return pOrigCryptAcquireContextW(phProv, szContainer, szProvider, dwProvType, dwFlags);
 }
+#else
+//CryptAcquireContextA
+BOOL WINAPI
+pHookCryptAcquireContextA(
+	_Out_		HCRYPTPROV*	phProv,
+	_In_opt_	LPCSTR		szContainer,
+	_In_opt_	LPCSTR		szProvider,
+	_In_		DWORD		dwProvType,
+	_In_		DWORD		dwFlags
+)
+{
+	if (logger) {
+		logger->TraceInfo("CryptAcquireContext");
+		logger->TraceInfo("IN szContainer: %s", szContainer);
+		logger->TraceInfo("IN szProvider: %s", szProvider);
+		logger->TraceInfo("IN dwProvType: 0x%x", dwProvType);
+		logger->TraceInfo("IN dwFlags: 0x%x", dwFlags);
+	}
+	return pOrigCryptAcquireContext(phProv, szContainer, szProvider, dwProvType, dwFlags);
+}
+#endif
 
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -55,12 +77,11 @@ bool shouldHook() {
 	wchar_t	wProcessName[MAX_PATH];
 	GetModuleFileName(NULL, wProcessName, MAX_PATH);
 	std::wstring wsPN(wProcessName);//convert wchar* to wstring
-	std::string strProcessName(wsPN.begin(), wsPN.end());
+	std::string strProcessNameFullPath(wsPN.begin(), wsPN.end());
+	logger = LOGGER::CLogger::getInstance(LOGGER::LogLevel_Info, LOG_PATH, "");
 	if (0 == wcscmp(APP_HOOKING, wProcessName)) {
-		if (logger) { logger->TraceInfo("%s is hooking onto a %s", strProcessName.c_str(), DLL_HOOKED); }
+		if (logger) { logger->TraceInfo("%s is hooking onto a %s", strProcessNameFullPath.c_str(), DLL_HOOKED); }
 		return true;
-	} else {
-		if (logger) { logger->TraceInfo("%s is NOT hooking onto anything", strProcessName.c_str()); }
 	}
 	return false;
 }
@@ -70,18 +91,31 @@ bool shouldHook() {
 void hookInitialize() {
 	g_hDll = LoadLibrary(DLL_HOOKED_W);
 
+#ifdef UNICODE
 	//GetProcAddress
-	pOrigCryptAcquireContext = (PFN_CRYPT_ACQUIRE_CONTEXT)GetProcAddress(g_hDll, "CryptAcquireContext");
+	pOrigCryptAcquireContextW = (PFN_CRYPT_ACQUIRE_CONTEXT)GetProcAddress(g_hDll, "CryptAcquireContext");
 
 	//Mhook_SetHook
-	Mhook_SetHook((PVOID *)&pOrigCryptAcquireContext, pHookCryptAcquireContext);
+	Mhook_SetHook((PVOID *)&pOrigCryptAcquireContextW, pHookCryptAcquireContextW);
+#else
+	//GetProcAddress
+	pOrigCryptAcquireContextA = (PFN_CRYPT_ACQUIRE_CONTEXT)GetProcAddress(g_hDll, "CryptAcquireContext");
+
+	//Mhook_SetHook
+	Mhook_SetHook((PVOID *)&pOrigCryptAcquireContextA, pHookCryptAcquireContextA);
+#endif
 }
 
 
 //hookFinalize
 void hookFinalize() {
+#ifdef UNICODE
 	//Mhook_Unhook
-	Mhook_Unhook((PVOID *)&pOrigCryptAcquireContext);
+	Mhook_Unhook((PVOID *)&pOrigCryptAcquireContextW);
+#else
+	//Mhook_Unhook
+	Mhook_Unhook((PVOID *)&pOrigCryptAcquireContextA);
+#endif
 }
 
 
@@ -95,7 +129,6 @@ BOOL WINAPI DllMain(
 	switch (Reason) {
 	case DLL_PROCESS_ATTACH:
 		if (shouldHook()) {
-			logger = LOGGER::CLogger::getInstance(LOGGER::LogLevel_Info, LOG_PATH, "");
 			hookInitialize();
 		} else {
 			return FALSE;
