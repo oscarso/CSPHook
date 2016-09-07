@@ -9,8 +9,8 @@
 // Global Variables
 #define				LOG_PATH		"C:\\Logs\\"
 #define				APP_HOOKING		L"C:\\Windows\\system32\\LogonUI.exe"
-#define				DLL_HOOKED_W	L"advapi32.dll"
-#define				DLL_HOOKED		"advapi32.dll"
+#define				DLL_HOOKED_W	L"basecsp.dll"
+#define				DLL_HOOKED		"basecsp.dll"
 LOGGER::CLogger*	logger = NULL;
 HMODULE				g_hDll = 0;
 
@@ -80,7 +80,7 @@ bool shouldHook() {
 	std::string strProcessNameFullPath(wsPN.begin(), wsPN.end());
 	logger = LOGGER::CLogger::getInstance(LOGGER::LogLevel_Info, LOG_PATH, "");
 	if (0 == wcscmp(APP_HOOKING, wProcessName)) {
-		if (logger) { logger->TraceInfo("%s is hooking onto a %s", strProcessNameFullPath.c_str(), DLL_HOOKED); }
+		if (logger) { logger->TraceInfo("%s is calling %s", strProcessNameFullPath.c_str(), DLL_HOOKED); }
 		return true;
 	}
 	return false;
